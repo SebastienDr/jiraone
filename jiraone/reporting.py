@@ -793,7 +793,7 @@ class Projects:
         add_log("File extraction for comments completed", "info")
 
     @staticmethod
-    def change_log(folder: str = "ChangeLog", file: str = "change_log.csv",
+    def change_log(folder: str = "ChangeLog", file: str = "change_log.txt",
                    back_up: bool = False,
                    allow_cp: bool = True,
                    **kwargs: Union[str, bool]) -> None:
@@ -873,6 +873,8 @@ class Projects:
             """
             nonlocal loop, attempt
             infinity_counter = count if back_up is False else data_brick["iter"]
+            nb_issues = str(len(data["issues"]))
+            print("Issues : "+nb_issues)
             for issue in data["issues"]:
                 keys = issue["key"]
                 attempt = 1
@@ -901,7 +903,7 @@ class Projects:
                             if "changelog" in key_data:
                                 _data = key_data["changelog"]
                                 # grab the change_histories on an issue
-                                print(f"Getting history from issue: {val}")
+                                print(f"Getting history from issue: {val} ("+str(infinity_counter)+"/"+str(nb_issues)+")")
                                 add_log(f"Getting history from issue: {val}", "info")
                                 changelog_history(_data, proj=(val, project_key, _summary))
                                 print("*" * 100)
@@ -914,7 +916,7 @@ class Projects:
                                 loads = json.loads(key_data.content)
                                 if starter >= loads["total"]:
                                     break
-                                print(f"Getting history from issue: {val}")
+                                print(f"Getting history from issue: {val} ("+str(infinity_counter)+"/"+str(nb_issues)+")")
                                 add_log(f"Getting history from issue: {val}", "info")
                                 changelog_history(loads, proj=(val, project_key, _summary))
                                 print("*" * 100)
@@ -1026,7 +1028,7 @@ class Projects:
                 else:
                     print("Starting extraction from scratch.")
                     set_up = None
-        os.open(path_builder(path=folder, file_name=saved_file), flags=os.O_CREAT) if allow_cp is True else None
+        fd = os.open(path_builder(path=folder, file_name=saved_file), flags=os.O_CREAT) if allow_cp is True else None
         file_writer(folder=folder, file_name=file, data=headers, mode="w+") if set_up is None else None
         depth = 1
         while True:
@@ -1058,6 +1060,7 @@ class Projects:
             print("A CSV file has been written to disk, find it here {}".format(
                 path_builder(folder, file_name=file)))
         add_log("File extraction for change log completed", "info")
+        os.close(fd);
         os.remove(path_builder(path=folder, file_name=saved_file)) if allow_cp is True else None
 
     def comment_on(self, key_or_id: str = None, comment_id: int = None, method: str = "GET", **kwargs) -> Any:
@@ -1569,16 +1572,17 @@ class Projects:
 
             limiter = (page[1] + 1) * 1000
             init = page[0] * 1000
-        print("Downloading issue export in CSV format.")
+        print("==> Downloading",total,"issues in CSV format.")
         file_deposit = []
         while True:
             if init >= limiter:
                 break
             file_name = temp_file.split(".")[0] + f"_{init}.csv"
             issues = LOGIN.get(endpoint.issue_export(jql, init))
-            print(issues, issues.reason, f"::downloading issues at page: "
-                                         f"{int(init / 1000)}", "of {}"
-                  .format(int((limiter - 1) / 1000)))
+            add_log("==> GET",endpoint.search_issues_jql(jql))
+            #print(issues, issues.reason, f"::downloading issues at page: "
+            #                             f"{int(init / 1000)}", "of {}"
+            #      .format(int((limiter - 1) / 1000)))
             file_writer(folder, file_name,
                         content=issues.content.decode('utf-8'),
                         mark="file", mode="w+")
@@ -1590,8 +1594,9 @@ class Projects:
             init += 1000
 
         config["prev_list"], config["next_list"], \
+        config["column_data"], \
         config["set_headers_main"], config["make_file"], \
-        config["set_file"] = [], [], [], [], []
+        config["set_file"] = [], [], {}, [], [], []
 
         # Get an index of all columns within the first file
         # Then use it across other files in the list
@@ -1935,17 +1940,18 @@ class Projects:
                     """
                     # checks the headers and maps the data
                     # to the headers
+                    del make_item[0]
                     cook_item = populate_column_data(make_item, attr)
                     look_up = \
                         DotNotation(value=cook_item)
                     _main_dupe = deepcopy(make_item)
-                    stop_loop = 0
+                    minus, stop_loop = 1, 0
                     _limit_copy = deepcopy(config["set_headers_main"])
                     _limit = len(_limit_copy)
                     inner_stop, finish_loop = {"num": 0}, \
                                               len([row for
                                                    row in
-                                                   make_item])
+                                                   make_item]) - minus
                     # The below adds the values as they are gotten
                     # From a dictionary object
                     while True:
@@ -1975,10 +1981,8 @@ class Projects:
                     look_up.clear()  # clear all used list items from memory
 
                 # populate the first list with prev data
-                del copy_temp_read[0]  # remove the headers
                 data_provision(copy_temp_read, attr=False)
                 # populate the second list with current data
-                del push[0]  # remove the headers
                 data_provision(push, attr=True)
                 # Why call `data_provision` twice instead of recursion?
                 # - That would mean creating more variables and 2-3 lines of
@@ -2030,8 +2034,9 @@ class Projects:
                 iteration += 1
                 progress += 1
                 current_progress = 100 * progress / current_value
-                print("Processing. "
-                      "Current progress: {}%".format(int(current_progress)))
+                # Seb : Inutile
+                #print("Processing. "
+                #      "Current progress: {}%".format(int(current_progress)))
 
         merge_files()  # loop through each file and attempt combination
 
@@ -2210,8 +2215,8 @@ class Projects:
         for file in config["exports"]:
             path = path_builder(folder, file)
             os.remove(path)
-        print("Export Completed.File located at {}"
-              .format(path_builder(folder, final_file)))
+        print("Export terminé !")
+        print("==> Fichier : {}".format(path_builder(folder, final_file)))
 
     @staticmethod
     def issue_count(jql: Optional[str] = None) -> dict:
@@ -2509,7 +2514,8 @@ def file_writer(folder: str = WORK_PATH, file_name: str = None, data: Iterable =
     encoding = kwargs["encoding"] if "encoding" in kwargs else "utf-8"
     # Bug:fix:JIR-8 on https://github.com/princenyeche/jiraone/issues/89
     windows = open(file, mode, encoding=encoding, newline="") \
-        if system() == "Windows" and mark != "file" else open(file, mode)
+    # Bug:Seb:encoding en local sur windows
+    #   if system() == "Windows" and mark != "file" else open(file, mode)
     if mode:
         with windows as f:
             write = csv.writer(f, delimiter=delimiter)
